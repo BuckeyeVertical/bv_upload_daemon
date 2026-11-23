@@ -1,0 +1,10 @@
+# Relative paths are resolved from this config file's directory.
+directory = "/path/to/photos"
+bucket = "your-s3-bucket"
+region = "us-east-2"
+prefix = "photos"
+
+# Decimal gigabytes. Leave this out or use 0 to disable local cleanup.
+soft_cap_gb = 30
+scan_interval = "15s"
+settle_time = "30s"

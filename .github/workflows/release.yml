@@ -1,0 +1,88 @@
+name: Build and release
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.x'
+      - run: go vet ./...
+      - run: go test ./...
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26.x'
+      - name: Build and package executables
+        shell: bash
+        env:
+          CGO_ENABLED: '0'
+        run: |
+          mkdir -p dist
+          version="build-${GITHUB_SHA}"
+          for platform in linux darwin windows; do
+            for arch in amd64 arm64; do
+              archive="bv-upload-daemon-${platform}-${arch}"
+              bundle="$(mktemp -d)"
+              binary=bv-upload-daemon
+              if [[ "$platform" == windows ]]; then
+                binary+=.exe
+              fi
+              GOOS="$platform" GOARCH="$arch" go build -trimpath \
+                -ldflags="-s -w -X main.version=$version" -o "$bundle/$binary" .
+              cp README.md config.example.toml "$bundle/"
+              if [[ "$platform/$arch" == linux/amd64 ]]; then
+                [[ "$("$bundle/$binary" --version)" == "$version" ]]
+              fi
+              if [[ "$platform" == windows ]]; then
+                (cd "$bundle" && zip -q "$GITHUB_WORKSPACE/dist/$archive.zip" "$binary" README.md config.example.toml)
+              else
+                tar -czf "dist/$archive.tar.gz" -C "$bundle" "$binary" README.md config.example.toml
+              fi
+              rm -rf "$bundle"
+            done
+          done
+          (cd dist && sha256sum *.tar.gz *.zip > SHA256SUMS)
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="build-${GITHUB_SHA}"
+          if draft="$(gh release view "$tag" --json isDraft --jq '.isDraft' 2>/dev/null)"; then
+            if [[ "$draft" == false ]]; then
+              exit 0
+            fi
+          else
+            gh release create "$tag" --draft --target "$GITHUB_SHA" \
+              --title "Build ${GITHUB_SHA:0:12}" --notes "Built from commit ${GITHUB_SHA}."
+          fi
+          gh release upload "$tag" dist/* --clobber
+          head="$(git ls-remote origin refs/heads/main | cut -f1)"
+          latest=false
+          if [[ "$head" == "$GITHUB_SHA" ]]; then
+            latest=true
+          fi
+          gh release edit "$tag" --draft=false --latest="$latest"
