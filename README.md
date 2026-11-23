@@ -1,7 +1,6 @@
 # BV Upload Daemon
 
 Upload a local directory to an Amazon S3 general-purpose bucket. The daemon scans for new and changed files, verifies uploaded bytes, and can reclaim local disk space after every file in the directory has a verified backup.
-
 ## Run it
 
 1. Download the archive for your operating system and CPU from [GitHub Releases](https://github.com/BuckeyeVertical/bv_upload_daemon/releases/latest) and extract it. The archive includes a standalone executable.
